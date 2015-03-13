@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from __future__ import print_function
 import os, sys
 import yaml
 import subprocess
@@ -7,6 +8,7 @@ from tempfile import mkdtemp
 from contextlib import contextmanager
 
 def run(command):
+    print('Executing:', command)
     return subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT)
 
 @contextmanager
@@ -16,17 +18,21 @@ def mount(device, partitions):
     try:
         # Mount the partitions
         for i, _, _, fs, mnt in sorted(partitions, key=lambda x: len(x[-1])):
-            if mnt == '.': continue
+            if mnt == '.':
+                continue
             path = os.path.join(root, mnt.lstrip('/'))
-            if not os.path.isdir(path): os.mkdir(path)
+            run('mkdir -p ' + path)
             run('mount -t {fs} {device}{i} {path}'.format(**locals()))
             mounted.append(path)
-        for fs in 'dev proc sys'.split():
-            path = '{root}/{fs}'.format(**locals())
-            run('mount --bind /{fs} {path}'.format(**locals()))
+        for path in 'dev proc sys'.split():
+            path = '{root}/{path}'.format(**locals())
+            run('mkdir -p ' + path)
+            run('mount --bind /{path} {path}'.format(**locals()))
             mounted.append(path)
         # Execute whatever while partitions mounted on root
         yield root
+    except:
+        raise
     finally:
         # Unmount everything
         for path in reversed(mounted):
@@ -35,7 +41,7 @@ def mount(device, partitions):
 
 def main():
     try:
-        _, device, config_file = sys.args
+        _, device, config_file = sys.argv
     except ValueError:
         sys.exit(
 """Usage: {} /dev/sdX path/to/config.yml
@@ -68,9 +74,9 @@ is made bootable, so you shouldn't specify a separate /boot.
         start = 2
         for i, part in enumerate(partitions, 1):
             size, fs, mnt = part.split()
-            end = '100%' if size == '.' else start + size
+            end = '100%' if size == '.' else start + int(size)
             yield (i, start, end, fs, mnt)
-            start += size + 1
+            start += (size + 1) if size != '.' else 0
 
     partitions = list(size_to_offsets(partitions))
 
@@ -80,6 +86,7 @@ is made bootable, so you shouldn't specify a separate /boot.
     # Create the partitions on a new MS-DOS disk label
     parted('{device} mklabel msdos'.format(**locals()))
     for i, start, end, fs, mnt in partitions:
+        if fs == 'swap': fs = 'linux-swap'
         parted('{device} mkpart primary {fs} {start}MB {end}'.format(**locals()))
         if mnt == '/':
             # Mark rootfs partition bootable (assume no separate /boot partition)
@@ -98,13 +105,16 @@ is made bootable, so you shouldn't specify a separate /boot.
         # Fix grub bootloader
         run('dd if=/dev/zero of={device} bs=512 seek=1 count=2047')
         def run_chroot(command):
-            return run('chroot {root} /bin/sh -c "{command}"'.format(**locals()))
+            return run('chroot {root} /bin/sh -c "{command}"'.format(root=root, command=command))
         run_chroot('grub-install --modules=part_msdos --boot-directory=/boot {device}'.format(**locals()))
-        run_chroot('rm /boot/grub/device.map; update-grub ; rm /boot/grub/device.map')
+        run_chroot('rm /boot/grub/device.map || true ;'  # Prevent warning on unmatching disks map when in another system
+                   'update-grub ;'
+                   'rm /boot/grub/device.map || true')
         # Set /etc/fstab
         with open(root + '/etc/fstab', 'a') as fstab:
+            fstab.write('# DISK_UUID\tMOUNT_POINT\tFS_TYPE\tOPTIONS\tDUMP_CORES\tFSCK')
             for i, _, _, fs, mnt in partitions:
-                uuid = run('blkid -o export -s UUID {device}{i}'.format(**locals()))
+                uuid = run('blkid -o export -s UUID {device}{i}'.format(**locals())).strip()
                 opts = 'rw,errors=remount-ro,noatime' if fs.startswith('ext') else 'defaults'
                 fsck = 1 if mnt == '/' else 2
                 if fs == 'swap':

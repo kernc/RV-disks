@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -e
+
 export LANG=C
 export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true DEBIAN_PRIORITY=critical  # don't ask any questions
 

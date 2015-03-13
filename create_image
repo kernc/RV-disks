@@ -1,6 +1,8 @@
 #!/bin/bash
 
-if [ "$#" != "1" ]; then
+set -e  # Fail immediately if any of the commands below fail
+
+if [ "$#" != "2" ]; then
     echo \
 "Usage: $0 TARGET path/to/config.conf
 
@@ -34,7 +36,7 @@ if [ ! "$arch" -o \
     exit 1
 fi
 
-export LANG=C
+export LANG=C LC_ALL=C
 export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true DEBIAN_PRIORITY=critical  # don't ask any questions
 
 # Install the minimum base
@@ -49,32 +51,38 @@ $apt_source_lines
 EOF
 
 # Prepare the chroot for installing
-mount --bind /bin/true          "$CHROOT"/usr/bin/ischroot
-mount --bind /etc/resolv.conf   "$CHROOT"/etc/resolv.conf
-mount --bind /proc/mounts       "$CHROOT"/etc/mtab
 for fs in dev proc sys; do mount --bind /$fs "$CHROOT"/$fs ; done
-echo -e "#!/bin/sh\nexit 101" > "$CHROOT"/usr/sbin/policy-rc.d && chmod a+x "$CHROOT"/usr/sbin/policy-rc.d
+mount --bind /bin/true          "$CHROOT"/usr/bin/ischroot
+cp           /etc/resolv.conf   "$CHROOT"/etc/resolv.conf
+cp           /proc/mounts       "$CHROOT"/etc/mtab
+echo -e '#!/bin/sh\nexit 101' > "$CHROOT"/usr/sbin/policy-rc.d && chmod a+x "$CHROOT"/usr/sbin/policy-rc.d
 
-# Do the magic
+# Prepare this for grub (BUG on Ubuntu)
+mkdir -p /boot/grub
+touch /boot/grub/menu.lst
+
+# Install packages
 chroot "$CHROOT" apt-get -qqyy update
 chroot "$CHROOT" apt-get -yy install $packages
 # Run the post-installation scripts
 if [ "$scripts" ]; then
     mkdir -p "$CHROOT/tmp/$scripts"
     mount --bind "$scripts" "$CHROOT/tmp/$scripts"
-    chroot "$CHROOT" run-parts --verbose --exit-on-error "$scripts"
-    umount "$CHROOT"/tmp
+    chroot "$CHROOT" run-parts --verbose --exit-on-error "/tmp/$scripts"
+    umount "$CHROOT/tmp/$scripts"
 fi
 
 # Unprepare the chroot
 rm "$CHROOT"/usr/sbin/policy-rc.d
-for fs in dev proc sys; do umount "$CHROOT"/$fs ; done
-umount "$CHROOT"/etc/mtab
-umount "$CHROOT"/etc/resolv.conf
+rm "$CHROOT"/etc/mtab
+echo > "$CHROOT"/etc/resolv.conf
 umount "$CHROOT"/usr/bin/ischroot
+umount "$CHROOT"/{dev,proc,sys}
 
 # Clean the directories
 rm -r "$CHROOT"/{tmp,var/tmp,dev,proc,sys,media,mnt,run}/*
 
 # Compress the chroot directory
-tar --exclude-backups -C "$CHROOT" -cf- . | gzip --fast --stdout > "$output_archive"
+echo 'Compressing image ...'
+tar --exclude-backups -C "$CHROOT" -cf- . |
+    gzip --fast --stdout > "$output_archive"
