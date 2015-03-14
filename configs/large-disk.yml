@@ -1,4 +1,6 @@
+# Disk image built with create_image, path relative to program invocation cwd
 disk_image: lubuntu.tar.gz
+# Partitions spec, one size_in_MB--filesystem--mount_point per line
 partitions:
   - 17000 ext4 /
   - 4400  swap .

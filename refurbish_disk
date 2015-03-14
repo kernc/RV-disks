@@ -8,7 +8,7 @@ Refurbishes disk /dev/sdX following config.yml, or fails."
     exit 0
 fi
 
-if [ $EUID -gt 500 ]; then
+if [ ${EUID:-$UID} -gt 500 ]; then
     echo "Error: You are not root."
     exit 1
 fi
@@ -18,9 +18,10 @@ CONFIG=$2
 
 BASEDIR="$(dirname $0)/parts"
 
-$BASEDIR/asses_disk $DISK &&
-$BASEDIR/wipe_disk  $DISK &&
-$BASEDIR/asses_disk $DISK &&
-$BASEDIR/copy_image $DISK $CONFIG &&
-echo 'All done. Enjoy!' ||
-echo 'Error. Disk is NOT ok. Goodbye.'
+{ $BASEDIR/asses_disk $DISK &&
+  $BASEDIR/wipe_disk  $DISK &&
+  $BASEDIR/asses_disk $DISK &&
+  $BASEDIR/copy_image $DISK $CONFIG &&
+  echo 'All done. Enjoy!'
+} ||
+  echo 'Error. Disk is NOT ok. Goodbye.'

@@ -10,7 +10,7 @@ Wipes data on disk /dev/sdX."
     exit 0
 fi
 
-if [ $EUID -gt 500 ]; then
+if [ ${EUID:-$UID} -gt 500 ]; then
     echo "Error: You are not root."
     exit 1
 fi
@@ -22,17 +22,18 @@ DISK="$1"
 DISK_SIZE=$(lsblk --output SIZE --bytes --noheadings --nodeps $DISK)
 PHYS_BLOCK_SIZE=$(cat /sys/block/$(basename $DISK)/queue/physical_block_size)
 NUM_BLOCKS=$((DISK_SIZE / PHYS_BLOCK_SIZE))
-random_password() { dd if=/dev/random bs=128 count=1 2>/dev/null | base64; }
 
-# TODO: account for effective writing speed: if too low, disk is crap.
-
+_random_password() {
+    dd if=/dev/random bs=128 count=1 2>/dev/null | base64
+}
 _write_stdin_with_reporting() {
     pv -bartpes $DISK_SIZE |
         dd bs=$PHYS_BLOCK_SIZE count=$NUM_BLOCKS of=$DISK
 }
+
 write_random() {
     echo "Writing random data to disk: $DISK"
-    openssl enc -aes-256-ctr -pass pass:"$(random_password)" -nosalt </dev/zero |
+    openssl enc -aes-256-ctr -pass pass:"$(_random_password)" -nosalt </dev/zero |
         _write_stdin_with_reporting
 }
 
@@ -42,6 +43,10 @@ write_zeros() {
         _write_stdin_with_reporting
 }
 
+# TODO: account for DCO and HPA (use `hdparm --dco-restore`, then http://en.wikipedia.org/wiki/Host_protected_area#Manipulation_methods)
+# TODO: account for effective writing speed: if too low, disk is crap, exit early
+
+# Wipe disk
 for func in write_random \
             write_zeros; do
     $func

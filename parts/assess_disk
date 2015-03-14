@@ -10,7 +10,7 @@ Checks if disk /dev/sdX is OK to be used."
     exit 0
 fi
 
-if [ $EUID -gt 500 ]; then
+if [ ${EUID:-$UID} -gt 500 ]; then
     echo "Error: You are not root."
     exit 1
 fi
@@ -29,16 +29,19 @@ else
     exit 1
 fi
 
-get_smart_data() {
+get_smart_attributes() {
     smartctl --all $DISK |
         awk '/Reallocated_Sector|Current_Pending_Sector|Bad_Block|Uncorrectable/{ print $0 }'
 }
 
-value=$(get_smart_data | awk '{ print $10 }' |
+# Sum all critical attribute values
+bad_value=$(get_smart_attributes | awk '{ print $10 }' |
             paste -sd+ |
-            bc)  # sum all attribute values
+            bc)
 
-if [ "$value" = '0' ]; then
+# If bad attributes' values below threshold
+if [ $bad_value -le 0 ]; then
+    # Disk is OK, print out info and also append it to LOG_FILE
     echo ''
     smartctl --info $DISK |
         awk '/^Device Model|Serial Number|User Capacity/{ print $0 }END{ print "\n" }' |
@@ -46,6 +49,6 @@ if [ "$value" = '0' ]; then
     echo "(also appended to $LOG_FILE)"
 else
     echo "Disk is NOT OK; SMART data:"
-    echo "$(get_smart_data)" | indent
+    echo "$(get_smart_attributes)" | indent
     exit 1
 fi

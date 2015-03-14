@@ -7,12 +7,15 @@ import subprocess
 from tempfile import mkdtemp
 from contextlib import contextmanager
 
+
 def run(command):
     print('Executing:', command)
     return subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT)
 
+
 @contextmanager
 def mount(device, partitions):
+    """Mount device's partitions. After the work, safely unmount all."""
     root = mkdtemp()
     mounted = []
     try:
@@ -38,6 +41,7 @@ def mount(device, partitions):
         for path in reversed(mounted):
             run('umount ' + path)
         os.rmdir(root)
+
 
 def main():
     try:
@@ -71,6 +75,7 @@ is made bootable, so you shouldn't specify a separate /boot.
     partitions = config['partitions']
 
     def size_to_offsets(partitions):
+        """Compute partition offsets for parted from partition spec"""
         start = 2
         for i, part in enumerate(partitions, 1):
             size, fs, mnt = part.split()
@@ -120,6 +125,7 @@ is made bootable, so you shouldn't specify a separate /boot.
                 if fs == 'swap':
                     mnt, fsck = 'swap', 0
                 fstab.write('\n{uuid}  {mnt}  {fs}  {opts}  0  {fsck}\n'.format(**locals()))
+
 
 if __name__ == '__main__':
     sys.exit(main())
